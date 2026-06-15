@@ -10,6 +10,7 @@ from langchain_groq import ChatGroq
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
+from langgraph.errors import GraphRecursionError
 from sqlalchemy.orm import Session
 
 load_dotenv()
@@ -248,6 +249,17 @@ TOOLS = [
 
 SYSTEM_PROMPT = """You are CampaignMind AI, an intelligent marketing assistant for LOOM, a premium Indian fashion brand CRM.
 
+WHAT YOU ARE (answer these DIRECTLY, with NO tool calls):
+CampaignMind is an AI-native mini CRM for LOOM. It lets marketers explore their
+customer base, build audience segments, draft and launch multi-channel campaigns
+(WhatsApp, SMS, email, RCS), and track delivery/open analytics — all through chat.
+If the user greets you ("hi", "hello"), asks "what is this CRM", "what can you do",
+"who are you", or any general/informational question, reply conversationally in 1-3
+sentences and offer a couple of concrete next steps (e.g. "I can show you your at-risk
+customers or draft a win-back campaign — what would you like?"). Do NOT call any tool
+and do NOT produce a campaign draft for these. Only start the campaign workflow below
+when the user actually asks about customers, segments, or campaigns.
+
 CUSTOMER SEGMENTS (use segment_tag alone — never mix with contradictory filters):
 - high_value : total_spend ≥ ₹15,000 — top spenders, ~91 customers
 - at_risk    : no purchase in 90+ days — churning customers, ~79 customers
@@ -308,7 +320,12 @@ async def run_chat(message: str, conversation_history: list[dict], db: Session) 
     messages.append(HumanMessage(content=message))
 
     try:
-        result = await agent.ainvoke({"messages": messages})
+        # recursion_limit caps the ReAct loop so a confused model can never hang
+        # the request indefinitely (e.g. repeatedly trying tools on a general question).
+        result = await agent.ainvoke(
+            {"messages": messages},
+            config={"recursion_limit": 12},
+        )
         # Extract the last AIMessage that has non-empty text content
         ai_messages = [
             m for m in result["messages"]
@@ -316,6 +333,16 @@ async def run_chat(message: str, conversation_history: list[dict], db: Session) 
         ]
         reply = ai_messages[-1].content if ai_messages else "Done! Let me know what you'd like to do next."
         return {"reply": reply, "action": None}
+    except GraphRecursionError:
+        logger.warning("Agent hit recursion limit — returning graceful fallback")
+        return {
+            "reply": (
+                "I'm CampaignMind, your marketing assistant for LOOM. I can show you "
+                "customer segments, draft messages, and launch campaigns. Try asking "
+                "\"show me at-risk customers\" or \"draft a win-back campaign\"."
+            ),
+            "action": None,
+        }
     except Exception as exc:
         logger.error(f"Agent error: {exc}")
         return {"reply": f"Sorry, I encountered an error: {str(exc)}", "action": None}
