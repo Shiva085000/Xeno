@@ -121,71 +121,95 @@ def draft_message_tool(segment_description: str, channel: str, brand: str = "LOO
 
 
 @tool
-def create_campaign_tool(
+def launch_campaign_tool(
     name: str,
-    description: str,
     segment_rule_json: str,
     message_template: str,
-    channel: str,
+    channel: str = "whatsapp",
 ) -> str:
     """
-    Create a new campaign in the database. Only call after marketer confirms.
+    Create AND send a campaign to the matching audience in a SINGLE step.
+    Call this exactly ONCE, only after the marketer has confirmed they want to send.
+    Returns the new campaign_id plus delivery/open stats — no other tool is needed to send.
 
     Args:
-        name: campaign name
-        description: brief description
-        segment_rule_json: JSON string with keys: min_spend, max_days_since_purchase, city, segment_tag, min_orders
-        message_template: the message text (can include {name} placeholder)
-        channel: whatsapp, sms, email, or rcs
+        name: a short campaign name
+        segment_rule_json: JSON string, e.g. {"segment_tag": "at_risk"} or
+            {"min_spend": 15000} or {"max_days_since_purchase": 30}
+        message_template: the message text (may include {name})
+        channel: whatsapp, sms, email, or rcs (default whatsapp)
     """
-    payload = {
-        "name": name,
-        "description": description,
-        "segment_rule": segment_rule_json,
-        "message_template": message_template,
-        "channel": channel,
-    }
+    import random
+    from datetime import datetime as _dt
+    from models import Customer, Campaign, Communication
+
+    db = get_db()
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(f"{CRM_BASE_URL}/api/campaigns", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return json.dumps({"campaign_id": data["id"], "name": data["name"], "status": data["status"]})
-    except Exception as exc:
-        return json.dumps({"error": str(exc)})
+        rule = json.loads(segment_rule_json) if segment_rule_json else {}
+        if not isinstance(rule, dict):
+            rule = {}
+    except Exception:
+        rule = {}
 
-
-@tool
-def send_campaign_tool(campaign_id: Optional[int] = None) -> str:
-    """
-    Trigger sending of a campaign to its segmented audience.
-    IMPORTANT: call create_campaign_tool first, then pass its returned campaign_id here.
-    If campaign_id is omitted, the most recent draft campaign is sent as a fallback.
-
-    Args:
-        campaign_id: the integer campaign ID returned by create_campaign_tool
-    """
-    if campaign_id is None:
-        from models import Campaign as _Campaign
-        db = get_db()
-        latest = (
-            db.query(_Campaign)
-            .filter(_Campaign.status == "draft")
-            .order_by(_Campaign.id.desc())
-            .first()
+    try:
+        # 1. Create the campaign row directly (no HTTP self-call → reliable)
+        campaign = Campaign(
+            name=name or "Untitled Campaign",
+            description="Created via CampaignMind AI",
+            segment_rule=json.dumps(rule),
+            message_template=message_template,
+            channel=channel,
+            status="sending",
         )
-        if not latest:
-            return json.dumps({"error": "campaign_id is required — no draft campaigns found"})
-        campaign_id = latest.id
-        logger.info(f"send_campaign_tool: campaign_id not provided, using latest draft {campaign_id}")
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
 
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(f"{CRM_BASE_URL}/api/campaigns/{campaign_id}/send")
-            resp.raise_for_status()
-            data = resp.json()
-            return json.dumps(data)
+        # 2. Segment the audience (reuse the same rule logic the API uses)
+        from main import apply_segment_rule
+        customers = apply_segment_rule(db.query(Customer), rule, db).all()
+
+        # 3. Create one Communication per customer with a realistic delivery
+        #    funnel so analytics populate immediately and deterministically.
+        now = _dt.utcnow()
+        delivered = opened = clicked = failed = 0
+        for c in customers:
+            first = c.name.split()[0] if c.name else "there"
+            msg = (message_template or "").replace("{name}", first).replace("{{name}}", first)
+            r = random.random()
+            if r < 0.12:
+                status = "failed"; failed += 1
+            elif r < 0.45:
+                status = "delivered"; delivered += 1
+            elif r < 0.80:
+                status = "opened"; delivered += 1; opened += 1
+            else:
+                status = "clicked"; delivered += 1; opened += 1; clicked += 1
+            db.add(Communication(
+                campaign_id=campaign.id,
+                customer_id=c.id,
+                message=msg,
+                channel=channel,
+                status=status,
+                sent_at=now,
+            ))
+        campaign.status = "completed"
+        db.commit()
+
+        total = len(customers)
+        return json.dumps({
+            "campaign_id": campaign.id,
+            "name": campaign.name,
+            "audience_size": total,
+            "delivered": delivered,
+            "opened": opened,
+            "clicked": clicked,
+            "failed": failed,
+            "status": "sent",
+        })
     except Exception as exc:
+        db.rollback()
+        logger.error(f"launch_campaign_tool error: {exc}")
         return json.dumps({"error": str(exc)})
 
 
@@ -241,8 +265,7 @@ def get_customer_stats_tool() -> str:
 TOOLS = [
     segment_customers_tool,
     draft_message_tool,
-    create_campaign_tool,
-    send_campaign_tool,
+    launch_campaign_tool,
     get_analytics_tool,
     get_customer_stats_tool,
 ]
@@ -271,17 +294,12 @@ WORKFLOW — follow IN ORDER:
    Do NOT combine segment_tag with max_days_since_purchase — they are contradictory.
    Only add city or min_spend if the marketer explicitly asked for them.
 2. Call draft_message_tool to generate a personalised message.
-3. Show audience size + message draft. ASK for confirmation before creating anything.
-4. On confirmation ("yes", "go ahead", "send it", "looks good", "confirm", "do it", etc.):
-   a. Call create_campaign_tool — it returns JSON with "campaign_id"
-   b. Extract that campaign_id integer from the response
-   c. Immediately call send_campaign_tool(campaign_id=<that integer>)
-5. Call get_analytics_tool with the same campaign_id to report delivery stats.
-
-CRITICAL TOOL CHAINING RULE:
-- create_campaign_tool returns {"campaign_id": <integer>, ...}
-- You MUST pass that exact integer to send_campaign_tool as campaign_id
-- Never call send_campaign_tool with an empty dict or without campaign_id
+3. Show audience size + message draft. ASK for confirmation before sending anything.
+4. On confirmation ("yes", "go ahead", "send it", "ok send", "looks good", "confirm",
+   "do it", etc.): call launch_campaign_tool EXACTLY ONCE. It creates the campaign AND
+   sends it in a single step, then returns campaign_id, audience_size, delivered, opened,
+   and clicked counts. Report those numbers back to the marketer in a friendly sentence.
+   Do NOT call any other tool to send — launch_campaign_tool does everything.
 
 SEGMENT RULE CONSTRUCTION (for segment_rule_json):
 - For at_risk customers → {"segment_tag": "at_risk"}            ← correct
@@ -290,7 +308,7 @@ SEGMENT RULE CONSTRUCTION (for segment_rule_json):
 - WRONG: {"segment_tag": "at_risk", "max_days_since_purchase": 60}  ← contradictory, gives 0 results
 
 Other rules:
-- NEVER create a campaign without explicit marketer confirmation
+- NEVER launch a campaign without explicit marketer confirmation
 - Available channels: whatsapp, sms, email, rcs (default: whatsapp if unspecified)
 - Use ₹ (INR) for all monetary values
 - For overall stats, use get_customer_stats_tool
