@@ -43,14 +43,17 @@ STATUS_ORDER = ["pending", "sent", "delivered", "failed", "opened", "read", "cli
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("CRM Backend started — DB tables created")
-    # Auto-seed demo data on cold start (Railway ephemeral filesystem)
     db = SessionLocal()
     try:
         if db.query(Customer).count() == 0:
-            logger.info("Empty DB detected — seeding demo data")
-            import subprocess, sys
-            subprocess.run([sys.executable, "seed.py"], check=False)
-            subprocess.run([sys.executable, "seed_campaigns.py"], check=False)
+            logger.info("Empty DB — seeding demo data")
+            from seed import seed as _seed_customers
+            from seed_campaigns import seed_campaigns as _seed_campaigns
+            _seed_customers()
+            _seed_campaigns()
+            logger.info("Seeding complete")
+    except Exception as exc:
+        logger.error(f"Seed failed (non-fatal): {exc}")
     finally:
         db.close()
     yield
