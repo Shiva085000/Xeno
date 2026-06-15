@@ -64,7 +64,9 @@ app = FastAPI(title="CampaignMind CRM API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # allow_credentials must be False when origins is wildcard — browsers reject
+    # `Access-Control-Allow-Origin: *` together with `Allow-Credentials: true`.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
