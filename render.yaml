@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: campaignmind-crm
+    runtime: python
+    rootDir: crm-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CHANNEL_SERVICE_URL
+        value: https://campaignmind-channel.onrender.com
+      - key: CRM_BASE_URL
+        value: https://campaignmind-crm.onrender.com
+
+  - type: web
+    name: campaignmind-channel
+    runtime: python
+    rootDir: channel-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: CRM_RECEIPT_URL
+        value: https://campaignmind-crm.onrender.com/api/receipt
