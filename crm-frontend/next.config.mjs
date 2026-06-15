@@ -16,6 +16,17 @@ const nextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        // Never cache proxied API responses at the edge/browser — always live data.
+        source: "/api/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, max-age=0" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

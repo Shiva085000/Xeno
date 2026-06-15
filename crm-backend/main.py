@@ -78,6 +78,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def no_cache_headers(request, call_next):
+    """Prevent Vercel's edge / browsers from caching API responses — otherwise a
+    stale GET (e.g. an old campaign list) gets served even after the data changes."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
 def get_db():
     db = SessionLocal()
     try:
