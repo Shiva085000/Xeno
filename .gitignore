@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+.env
+crm-backend/.env
+channel-service/.env
+
+# Node
+node_modules/
+crm-frontend/.next/
+crm-frontend/.vercel/
+
+# Logs & dev artifacts
+*.log
+*.txt
+service*.log
+service*-err.log
+backend.log
+channel.log
+devlog.log
+devlog.txt
+
+# Local env files
+.env.local
+**/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
