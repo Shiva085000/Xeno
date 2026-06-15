@@ -52,13 +52,12 @@ async def lifespan(app: FastAPI):
             from seed import seed as _seed_customers
             _seed_customers()
             logger.info("Customer seeding complete")
-        # Seed demo campaigns independently: self-heals if campaigns ever end up
-        # empty while customers persist, so evaluators always see demo campaigns.
-        if db.query(Campaign).count() == 0:
-            logger.info("No campaigns — seeding demo campaigns")
-            from seed_campaigns import seed_campaigns as _seed_campaigns
-            _seed_campaigns()
-            logger.info("Campaign seeding complete")
+        # Ensure the demo campaigns exist on every startup. seed_campaigns is
+        # idempotent (creates each demo by name only if missing, deletes nothing),
+        # so the demos always show up without touching user-created campaigns.
+        from seed_campaigns import seed_campaigns as _seed_campaigns
+        _seed_campaigns()
+        logger.info("Demo campaigns ensured")
     except Exception as exc:
         logger.error(f"Seed failed (non-fatal): {exc}")
     finally:
