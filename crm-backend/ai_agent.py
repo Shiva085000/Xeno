@@ -302,7 +302,9 @@ def get_agent(db: Session):
     set_db_session(db)
     llm = ChatGroq(
         api_key=GROQ_API_KEY,
-        model="llama-3.3-70b-versatile",
+        # 8b-instant has a much higher free-tier daily token limit than 70b and
+        # is faster — far more reliable for sustained evaluation traffic.
+        model="llama-3.1-8b-instant",
         temperature=0.3,
     )
     return create_react_agent(llm, TOOLS, prompt=SYSTEM_PROMPT)
@@ -311,8 +313,12 @@ def get_agent(db: Session):
 async def run_chat(message: str, conversation_history: list[dict], db: Session) -> dict[str, Any]:
     agent = get_agent(db)
 
+    # Only keep the most recent turns — resending long histories wastes tokens
+    # and pushes us toward the daily rate limit faster.
+    recent_history = conversation_history[-8:]
+
     messages = []
-    for msg in conversation_history:
+    for msg in recent_history:
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         elif msg["role"] == "assistant":
@@ -345,4 +351,22 @@ async def run_chat(message: str, conversation_history: list[dict], db: Session) 
         }
     except Exception as exc:
         logger.error(f"Agent error: {exc}")
-        return {"reply": f"Sorry, I encountered an error: {str(exc)}", "action": None}
+        msg = str(exc)
+        # Surface rate-limit / quota errors as a clean, human message instead of
+        # dumping the raw provider JSON into the chat.
+        if "429" in msg or "rate_limit" in msg.lower() or "quota" in msg.lower():
+            return {
+                "reply": (
+                    "I'm getting a lot of requests right now and hit a temporary AI "
+                    "rate limit. Please try again in a minute or two — your data and "
+                    "campaigns are all still here."
+                ),
+                "action": None,
+            }
+        return {
+            "reply": (
+                "Sorry, I ran into a problem processing that. Please try rephrasing, "
+                "or ask me to show a customer segment or draft a campaign."
+            ),
+            "action": None,
+        }
