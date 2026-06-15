@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,12 @@ const NAV_ITEMS = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close the mobile menu whenever the route changes
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
   return (
     <>
@@ -27,13 +34,52 @@ export default function Navbar() {
             <Link href="/campaigns"><span className={cn("transition-all cursor-pointer", pathname.startsWith("/campaigns") ? "text-primary font-bold" : "text-on-surface-variant hover:bg-white/5 px-3 py-1 rounded-lg")}>Campaigns</span></Link>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button className="material-symbols-outlined text-primary p-2 hover:bg-white/5 rounded-full transition-all">notifications</button>
           <div className="w-8 h-8 rounded-full border border-primary/30 overflow-hidden bg-white/10 flex items-center justify-center">
             <span className="text-xs font-bold text-white">L</span>
           </div>
+          {/* Mobile menu toggle */}
+          <button
+            aria-label="Toggle navigation menu"
+            onClick={() => setMenuOpen((o) => !o)}
+            className="lg:hidden material-symbols-outlined text-on-surface p-2 hover:bg-white/5 rounded-full transition-all"
+          >
+            {menuOpen ? "close" : "menu"}
+          </button>
         </div>
       </nav>
+
+      {/* Mobile dropdown menu (overlay — no layout conflict with chat input) */}
+      {menuOpen && (
+        <div
+          className="lg:hidden fixed inset-0 top-16 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMenuOpen(false)}
+        >
+          <div
+            className="bg-surface-container-low border-b border-white/10 shadow-2xl p-4 flex flex-col gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {NAV_ITEMS.map(({ href, label, icon, exact }) => {
+              const active = exact ? pathname === href : pathname.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setMenuOpen(false)}
+                  className={cn(
+                    "flex items-center gap-4 px-4 py-3 rounded-xl transition-all",
+                    active ? "text-primary font-bold bg-primary/10" : "text-on-surface-variant hover:bg-white/5"
+                  )}
+                >
+                  <span className="material-symbols-outlined">{icon}</span>
+                  <span className="font-body-md text-base">{label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Side Navigation (Desktop Only) */}
       <aside className="hidden lg:flex fixed left-0 top-0 h-full w-[280px] bg-surface-container-low dark:bg-surface-container-low border-r border-white/5 shadow-2xl flex-col p-md z-40 pt-24">
