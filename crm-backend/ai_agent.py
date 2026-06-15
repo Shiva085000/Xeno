@@ -123,33 +123,47 @@ def draft_message_tool(segment_description: str, channel: str, brand: str = "LOO
 @tool
 def launch_campaign_tool(
     name: str,
-    segment_rule_json: str,
     message_template: str,
     channel: str = "whatsapp",
+    segment_tag: Optional[str] = None,
+    city: Optional[str] = None,
+    min_spend: Optional[float] = None,
+    max_days_since_purchase: Optional[int] = None,
+    min_orders: Optional[int] = None,
 ) -> str:
     """
     Create AND send a campaign to the matching audience in a SINGLE step.
     Call this exactly ONCE, only after the marketer has confirmed they want to send.
     Returns the new campaign_id plus delivery/open stats — no other tool is needed to send.
+    Pass the SAME audience filters you used with segment_customers_tool.
 
     Args:
         name: a short campaign name
-        segment_rule_json: JSON string, e.g. {"segment_tag": "at_risk"} or
-            {"min_spend": 15000} or {"max_days_since_purchase": 30}
         message_template: the message text (may include {name})
         channel: whatsapp, sms, email, or rcs (default whatsapp)
+        segment_tag: one of high_value, at_risk, new, regular (optional)
+        city: filter by city name (optional)
+        min_spend: minimum total spend in INR (optional)
+        max_days_since_purchase: customers who purchased within this many days (optional)
+        min_orders: minimum number of orders (optional)
     """
     import random
     from datetime import datetime as _dt
     from models import Customer, Campaign, Communication
 
     db = get_db()
-    try:
-        rule = json.loads(segment_rule_json) if segment_rule_json else {}
-        if not isinstance(rule, dict):
-            rule = {}
-    except Exception:
-        rule = {}
+    # Build the segment rule from simple typed args (no fragile JSON string to parse)
+    rule: dict = {}
+    if segment_tag:
+        rule["segment_tag"] = segment_tag
+    if city:
+        rule["city"] = city
+    if min_spend is not None:
+        rule["min_spend"] = min_spend
+    if max_days_since_purchase is not None:
+        rule["max_days_since_purchase"] = max_days_since_purchase
+    if min_orders is not None:
+        rule["min_orders"] = min_orders
 
     try:
         # 1. Create the campaign row directly (no HTTP self-call → reliable)
@@ -297,16 +311,19 @@ WORKFLOW — follow IN ORDER:
 2. Call draft_message_tool to generate a personalised message.
 3. Show audience size + message draft. ASK for confirmation before sending anything.
 4. On confirmation ("yes", "go ahead", "send it", "ok send", "looks good", "confirm",
-   "do it", etc.): call launch_campaign_tool EXACTLY ONCE. It creates the campaign AND
-   sends it in a single step, then returns campaign_id, audience_size, delivered, opened,
-   and clicked counts. Report those numbers back to the marketer in a friendly sentence.
-   Do NOT call any other tool to send — launch_campaign_tool does everything.
+   "do it", etc.): call launch_campaign_tool EXACTLY ONCE. Pass name, message_template,
+   channel, and the SAME audience filters you used in step 1 as separate arguments
+   (segment_tag, city, min_spend, max_days_since_purchase, min_orders). It creates the
+   campaign AND sends it in one step, returning audience_size, delivered, opened, and
+   clicked counts. Report those numbers back in a friendly sentence. Do NOT call any
+   other tool to send — launch_campaign_tool does everything.
 
-SEGMENT RULE CONSTRUCTION (for segment_rule_json):
-- For at_risk customers → {"segment_tag": "at_risk"}            ← correct
-- For high value →        {"segment_tag": "high_value"}          ← correct
-- For recent buyers →     {"max_days_since_purchase": 30}        ← correct (no tag)
-- WRONG: {"segment_tag": "at_risk", "max_days_since_purchase": 60}  ← contradictory, gives 0 results
+AUDIENCE FILTERS (pass as separate args to both segment_customers_tool and launch_campaign_tool):
+- at_risk customers → segment_tag="at_risk"
+- high value →        segment_tag="high_value"
+- new customers in a city → segment_tag="new", city="Mumbai"
+- recent buyers →     max_days_since_purchase=30   (no segment_tag)
+- Do NOT combine segment_tag with max_days_since_purchase — contradictory, gives 0 results.
 
 Other rules:
 - NEVER launch a campaign without explicit marketer confirmation
