@@ -9,7 +9,10 @@ import type {
   SegmentPreview,
 } from "@/types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://campaignmind-crm.onrender.com";
+// Empty default => same-origin requests to /api/*, which Vercel proxies to the
+// backend via the rewrite in next.config.mjs. This sidesteps CORS entirely.
+// For local dev against a local backend, set NEXT_PUBLIC_API_URL=http://localhost:8000.
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function request<T>(
   path: string,
