@@ -190,12 +190,15 @@ export default function ChatInterface({ initialPrompt }: { initialPrompt?: strin
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
+      console.error("[chat error]", err);
+      const raw = err instanceof Error ? err.message : "";
+      const isHtmlOrUnknown = raw.includes("<") || raw.includes("404") || !raw;
       const errMsg: ChatMessage & { id: string } = {
         id: `e-${Date.now()}`,
         role: "assistant",
-        content: err instanceof Error
-          ? err.message
-          : "Sorry, I couldn't reach the server. Make sure the backend is running on port 8000.",
+        content: isHtmlOrUnknown
+          ? "Sorry, the AI agent is warming up (Render free tier cold start — ~30s). Please try again in a moment."
+          : raw,
       };
       setMessages((prev) => [...prev, errMsg]);
     } finally {

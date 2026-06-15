@@ -69,7 +69,7 @@ export default function DashboardPage() {
   if (error) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
       <span className="material-symbols-outlined text-5xl text-error">cloud_off</span>
-      <p className="text-on-surface-variant">Could not reach the backend. Make sure it&apos;s running on port 8000.</p>
+      <p className="text-on-surface-variant">Could not reach the backend. It may be warming up — please retry in 30 seconds.</p>
       <button onClick={loadData} className="gradient-button px-6 py-2.5 rounded-xl text-white font-bold text-sm">Retry</button>
     </div>
   );
