@@ -122,11 +122,35 @@ function MessageBubble({ msg }: { msg: ChatMessage & { id: string } }) {
 
 const STORAGE_KEY = "campaignmind_chat";
 
+// Detects messages whose content is raw HTML / a Next.js error page rather than
+// a real chat reply. These got persisted before the API proxy fix and must be
+// scrubbed so users don't keep seeing dumped 404 markup on load.
+function isCorruptContent(content: unknown): boolean {
+  if (typeof content !== "string") return true;
+  return (
+    content.includes("<script") ||
+    content.includes("<html") ||
+    content.includes("</html>") ||
+    content.includes("dangerouslySetInnerHTML") ||
+    content.includes("This page could not be found") ||
+    content.includes("__next_f")
+  );
+}
+
 function loadMessages(): (ChatMessage & { id: string })[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    const clean = parsed.filter(
+      (m) => m && typeof m === "object" && !isCorruptContent(m.content)
+    );
+    // If we dropped anything, rewrite storage so it stays clean.
+    if (clean.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+    }
+    return clean;
   } catch {
     return [];
   }
