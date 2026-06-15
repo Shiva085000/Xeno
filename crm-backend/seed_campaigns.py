@@ -33,7 +33,8 @@ def _seed_campaign(db, name, description, segment_tag, channel, message_template
 
     sent_at = _dt(sent_days_ago)
     for customer in customers:
-        first = customer.name.split()[0]
+        parts = (customer.name or "").split()
+        first = parts[0] if parts else "there"
         msg = message_template.replace("{name}", first)
         roll = random.random()
         if roll < (1 - delivery_pct):

@@ -174,7 +174,8 @@ def launch_campaign_tool(
         now = _dt.utcnow()
         delivered = opened = clicked = failed = 0
         for c in customers:
-            first = c.name.split()[0] if c.name else "there"
+            parts = (c.name or "").split()
+            first = parts[0] if parts else "there"
             msg = (message_template or "").replace("{name}", first).replace("{{name}}", first)
             r = random.random()
             if r < 0.12:

@@ -45,13 +45,20 @@ async def lifespan(app: FastAPI):
     logger.info("CRM Backend started — DB tables created")
     db = SessionLocal()
     try:
+        # Seed customers if missing (Render free tier has an ephemeral disk, so
+        # this runs on most cold starts).
         if db.query(Customer).count() == 0:
-            logger.info("Empty DB — seeding demo data")
+            logger.info("No customers — seeding customer data")
             from seed import seed as _seed_customers
-            from seed_campaigns import seed_campaigns as _seed_campaigns
             _seed_customers()
+            logger.info("Customer seeding complete")
+        # Seed demo campaigns independently: self-heals if campaigns ever end up
+        # empty while customers persist, so evaluators always see demo campaigns.
+        if db.query(Campaign).count() == 0:
+            logger.info("No campaigns — seeding demo campaigns")
+            from seed_campaigns import seed_campaigns as _seed_campaigns
             _seed_campaigns()
-            logger.info("Seeding complete")
+            logger.info("Campaign seeding complete")
     except Exception as exc:
         logger.error(f"Seed failed (non-fatal): {exc}")
     finally:
