@@ -362,6 +362,17 @@ async def send_campaign(
     return {"message": "Campaign send initiated", "campaign_id": campaign_id, "status": "sending"}
 
 
+@app.delete("/api/campaigns/{campaign_id}", status_code=200)
+async def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    db.query(Communication).filter(Communication.campaign_id == campaign_id).delete()
+    db.delete(campaign)
+    db.commit()
+    return {"message": "Campaign deleted", "campaign_id": campaign_id}
+
+
 # ── Receipt Webhook ───────────────────────────────────────────────────────────
 
 @app.post("/api/receipt")
